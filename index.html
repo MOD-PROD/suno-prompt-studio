@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="format-detection" content="telephone=no">
     <title>Suno Prompt Studio - Prompt Generator</title>
@@ -275,7 +275,7 @@
     </div>
 
     <!-- Toast Notification -->
-    <div id="toast" class="hidden">Prompt rechargé !</div>
+    <div id="toast">Prompt rechargé !</div>
 
     <!-- Input file caché pour charger JSON -->
     <input type="file" id="json-file-input" accept=".json" class="hidden">
@@ -350,14 +350,19 @@
 
         saveKeyBtn?.addEventListener('click', () => {
             const key = apiKeyInput.value.trim();
-            if (key) {
-                localStorage.setItem('geminiApiKey', key);
-                keyStatus.textContent = "Clé enregistrée ✓";
-                keyStatus.className = "mt-4 text-sm text-center text-green-400";
-            } else {
+            if (!key) {
                 keyStatus.textContent = "Aucune clé saisie";
                 keyStatus.className = "mt-4 text-sm text-center text-red-400";
+                return;
             }
+            if (key.length < 20 || !/^[A-Za-z0-9_-]+$/.test(key)) {
+                keyStatus.textContent = "Format de clé invalide";
+                keyStatus.className = "mt-4 text-sm text-center text-red-400";
+                return;
+            }
+            localStorage.setItem('geminiApiKey', key);
+            keyStatus.textContent = "Clé enregistrée ✓";
+            keyStatus.className = "mt-4 text-sm text-center text-green-400";
         });
 
         clearKeyBtn?.addEventListener('click', () => {
@@ -562,6 +567,18 @@ RÈGLES "style" : Phrase fluide descriptive en langage naturel, MAX 180 caractè
         updateCount(moodEl, moodCount, 180, 140);
 
         // ────────────────────────────────────────────────
+        // Utilitaire : indicateur longueur style
+        // ────────────────────────────────────────────────
+        function updateStyleIndicator(len) {
+            const el = document.getElementById('style-length');
+            if (!el) return;
+            el.textContent = `${len} / 180 caractères`;
+            el.className = len > 180 ? 'text-xs text-right text-red-400 mt-1 font-medium'
+                         : len > 160 ? 'text-xs text-right text-yellow-400 mt-1'
+                         : 'text-xs text-right text-gray-400 mt-1';
+        }
+
+        // ────────────────────────────────────────────────
         // Historique
         // ────────────────────────────────────────────────
         const HISTORY_KEY = 'sunoPromptHistory';
@@ -580,77 +597,102 @@ RÈGLES "style" : Phrase fluide descriptive en langage naturel, MAX 180 caractè
                 generatedLyrics: document.getElementById('lyrics-out').textContent.trim(),
                 generatedStyle: document.getElementById('style-out').textContent.trim()
             };
-            let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-            history.unshift(data);
-            if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+            let historyItems = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            historyItems.unshift(data);
+            if (historyItems.length > MAX_HISTORY) historyItems = historyItems.slice(0, MAX_HISTORY);
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(historyItems));
         }
 
         function loadHistory() {
             const list = document.getElementById('history-list');
             if (!list) return;
-            const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            const historyItems = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
             list.innerHTML = '';
-            if (history.length === 0) {
-                list.innerHTML = '<p class="text-center text-gray-400 py-8">Aucun historique pour le moment</p>';
+            if (historyItems.length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'text-center text-gray-400 py-8';
+                empty.textContent = 'Aucun historique pour le moment';
+                list.appendChild(empty);
                 return;
             }
-            history.forEach((item, index) => {
+            historyItems.forEach((item, index) => {
                 const date = new Date(item.timestamp).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
                 const displayTitle = item.generatedTitle || item.title || '(sans titre)';
-                const stylePreview = (item.generatedStyle || '').substring(0, 100) + ((item.generatedStyle || '').length > 100 ? '...' : '');
+                const rawStyle = item.generatedStyle || '';
+                const stylePreview = rawStyle.length > 100 ? rawStyle.substring(0, 100) + '...' : rawStyle;
+
                 const div = document.createElement('div');
                 div.className = 'history-item p-4 rounded-lg bg-purple-950/30 hover:bg-purple-950/50 transition';
-                div.innerHTML = `
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <p class="font-semibold text-purple-300">${displayTitle}</p>
-                            <p class="text-xs text-gray-400">${date}</p>
-                        </div>
-                        <div class="flex gap-2">
-                            <button class="load-btn text-xs bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded" data-index="${index}">Recharger</button>
-                            <button class="delete-btn text-xs bg-red-700/70 hover:bg-red-600 px-3 py-1 rounded" data-index="${index}">×</button>
-                        </div>
-                    </div>
-                    <p class="text-sm text-gray-300 line-clamp-2">${stylePreview || '— pas de style —'}</p>
-                `;
+
+                const header = document.createElement('div');
+                header.className = 'flex justify-between items-start mb-2';
+
+                const info = document.createElement('div');
+                const titleP = document.createElement('p');
+                titleP.className = 'font-semibold text-purple-300';
+                titleP.textContent = displayTitle;
+                const dateP = document.createElement('p');
+                dateP.className = 'text-xs text-gray-400';
+                dateP.textContent = date;
+                info.append(titleP, dateP);
+
+                const btns = document.createElement('div');
+                btns.className = 'flex gap-2';
+                const loadBtn = document.createElement('button');
+                loadBtn.className = 'load-btn text-xs bg-purple-700 hover:bg-purple-600 px-3 py-1 rounded';
+                loadBtn.dataset.index = index;
+                loadBtn.textContent = 'Recharger';
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn text-xs bg-red-700/70 hover:bg-red-600 px-3 py-1 rounded';
+                deleteBtn.dataset.index = index;
+                deleteBtn.textContent = '×';
+                btns.append(loadBtn, deleteBtn);
+
+                header.append(info, btns);
+
+                const previewP = document.createElement('p');
+                previewP.className = 'text-sm text-gray-300 line-clamp-2';
+                previewP.textContent = stylePreview || '— pas de style —';
+
+                div.append(header, previewP);
                 list.appendChild(div);
             });
-
-            document.querySelectorAll('.load-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.dataset.index);
-                    const item = history[idx];
-                    if (!item) return;
-                    document.getElementById('title').value = item.title || '';
-                    document.getElementById('artist').value = item.artist || '';
-                    document.getElementById('youtube').value = item.youtube || '';
-                    document.getElementById('vocal-persona').value = item.vocalPersona || '';
-                    document.getElementById('lyrics').value = item.lyrics || '';
-                    document.getElementById('mood').value = item.mood || '';
-                    document.getElementById('song-title').textContent = item.generatedTitle || '';
-                    document.getElementById('lyrics-out').textContent = item.generatedLyrics || '';
-                    document.getElementById('style-out').textContent = item.generatedStyle || '';
-                    const len = item.generatedStyle?.length || 0;
-                    document.getElementById('style-length').textContent = `${len} / 180 caractères`;
-                    document.getElementById('style-length').className = len > 180 ? "text-xs text-right text-red-400 mt-1 font-medium" : len > 160 ? "text-xs text-right text-yellow-400 mt-1" : "text-xs text-right text-gray-400 mt-1";
-                    document.getElementById('result').classList.remove('hidden');
-                    historyPanel.classList.add('hidden');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                    showToast("Prompt rechargé !");
-                });
-            });
-
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const idx = parseInt(btn.dataset.index);
-                    let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-                    history.splice(idx, 1);
-                    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-                    loadHistory();
-                });
-            });
         }
+
+        // Délégation d'événements unique sur le panneau historique
+        document.getElementById('history-list')?.addEventListener('click', (e) => {
+            const loadBtn = e.target.closest('.load-btn');
+            const deleteBtn = e.target.closest('.delete-btn');
+            if (!loadBtn && !deleteBtn) return;
+
+            const historyItems = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+            const idx = parseInt((loadBtn || deleteBtn).dataset.index);
+
+            if (loadBtn) {
+                const item = historyItems[idx];
+                if (!item) return;
+                document.getElementById('title').value = item.title || '';
+                document.getElementById('artist').value = item.artist || '';
+                document.getElementById('youtube').value = item.youtube || '';
+                document.getElementById('vocal-persona').value = item.vocalPersona || '';
+                document.getElementById('lyrics').value = item.lyrics || '';
+                document.getElementById('mood').value = item.mood || '';
+                document.getElementById('song-title').textContent = item.generatedTitle || '';
+                document.getElementById('lyrics-out').textContent = item.generatedLyrics || '';
+                document.getElementById('style-out').textContent = item.generatedStyle || '';
+                updateStyleIndicator(item.generatedStyle?.length || 0);
+                document.getElementById('result').classList.remove('hidden');
+                historyPanel.classList.add('hidden');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                showToast("Prompt rechargé !");
+            }
+
+            if (deleteBtn) {
+                historyItems.splice(idx, 1);
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(historyItems));
+                loadHistory();
+            }
+        });
 
         // ────────────────────────────────────────────────
         // Parsing JSON robuste
@@ -663,9 +705,9 @@ RÈGLES "style" : Phrase fluide descriptive en langage naturel, MAX 180 caractè
                 .replace(/^```(?:json)?\s*/i, '')
                 .replace(/\s*```$/i, '')
                 .trim();
-            try { return JSON.parse(cleaned); } catch {}
+            try { return JSON.parse(cleaned); } catch (e) { console.warn("JSON parse attempt 1 failed:", e.message); }
             cleaned = raw.match(/\{[\s\S]*?\}/)?.[0] || '';
-            try { return JSON.parse(cleaned); } catch {}
+            try { return JSON.parse(cleaned); } catch (e) { console.warn("JSON parse attempt 2 failed:", e.message); }
             console.warn("Échec parsing JSON", raw.substring(0, 300) + "...");
             return null;
         }
@@ -766,13 +808,8 @@ Générez une chanson complète optimisée pour Suno v5/v6 (2026) en utilisant c
                     styleText = `${vocalPersona}, ${styleText}`;
                 }
 
-                const len = styleText.length;
                 document.getElementById('style-out').textContent = styleText;
-                document.getElementById('style-length').textContent = `${len} / 180 caractères`;
-                document.getElementById('style-length').className =
-                    len > 180 ? "text-xs text-right text-red-400 mt-1 font-medium" :
-                    len > 160 ? "text-xs text-right text-yellow-400 mt-1" :
-                    "text-xs text-right text-gray-400 mt-1";
+                updateStyleIndicator(styleText.length);
 
                 document.getElementById('result').classList.remove('hidden');
                 document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
